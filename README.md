@@ -15,10 +15,20 @@ The `quadra-data` volume stores the SQLite database across container updates. Pu
 
 - One shared password; no user accounts. A successful login creates a 14-day HTTP-only session cookie.
 - Create and manually end rankings. The complete player list is captured at creation and cannot be edited afterward.
-- Generate one doubles match for a Saturday-to-Friday week. Players are selected from the roster in a rotating order; a roster with an odd number leaves one player out of each match.
+- Generate a singles slate for each Saturday-to-Friday week, prioritizing opponents with fewer completed head-to-head matches. Manually edited pairings count after their result is entered. Every player gets one opponent per round; with an odd roster, one player has a bye. The round-robin rotation breaks ties.
+- Add the reserved date, time, venue, and court to each generated match, then enter the set scores later.
 - Choose AP or UP, a court, and a match date/time in that week. The court list is a temporary 1–3 placeholder and should be replaced with the venue's actual courts. Time slots are currently entered directly; the requested preset schedule can be added once provided.
 - Add set game scores; match scores are shown on the ranking page.
 - Installable PWA shell with a service worker for static assets.
+
+## Pages
+
+- `/rankings` — ranking management.
+- `/rankings/{id}/standings` — cumulative player standings.
+- `/rankings/{id}/week` — current week's pairings, reservations, and results.
+- `/rankings/{id}/history` — completed results from previous weeks.
+
+Each page has its own URL, so a selected ranking survives refresh and browser back/forward navigation.
 
 ## Configuration
 
