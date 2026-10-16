@@ -1,0 +1,21 @@
+# Local environment and secrets
+.env
+.env.*
+!.env.example
+
+# SQLite database and runtime data
+/data/
+*.db
+*.db-shm
+*.db-wal
+
+# Go build artifacts
+/quadra
+/tennis-ranking
+*.test
+coverage.out
+
+# Editors and operating systems
+.DS_Store
+.idea/
+.vscode/

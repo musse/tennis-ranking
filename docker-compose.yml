@@ -1,0 +1,15 @@
+services:
+  quadra:
+    build: .
+    ports:
+      - "8080:8080"
+    environment:
+      APP_PASSWORD: ${APP_PASSWORD:?Set APP_PASSWORD in .env}
+      RECAPTCHA_SITE_KEY: ${RECAPTCHA_SITE_KEY:-}
+      RECAPTCHA_SECRET_KEY: ${RECAPTCHA_SECRET_KEY:-}
+    volumes:
+      - quadra-data:/data
+    restart: unless-stopped
+
+volumes:
+  quadra-data:
