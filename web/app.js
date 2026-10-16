@@ -82,5 +82,5 @@ function formatDate(d){return `${d.getFullYear()}-${String(d.getMonth()+1).padSt
 function saturday(d){const x=new Date(d);x.setDate(x.getDate()-((x.getDay()+1)%7));return x}
 window.addEventListener('popstate',()=>{if(!$('#app').classList.contains('hidden'))renderRoute()});
 if('serviceWorker'in navigator)navigator.serviceWorker.register('/sw.js');
-api('config').then(c=>{siteKey=c.captchaSiteKey;if(siteKey){const s=document.createElement('script');s.src='https://www.google.com/recaptcha/api.js?render='+encodeURIComponent(siteKey);document.head.append(s)}});
+api('config').then(c=>{siteKey=c.captchaSiteKey;if(siteKey){$('#captcha-terms').classList.remove('hidden');const s=document.createElement('script');s.src='https://www.google.com/recaptcha/api.js?render='+encodeURIComponent(siteKey);document.head.append(s)}});
 boot();
