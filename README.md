@@ -18,7 +18,7 @@ The `quadra-data` volume stores the SQLite database across container updates. Pu
 - Generate a singles slate for each Saturday-to-Friday week, prioritizing opponents with fewer completed head-to-head matches. Manually edited pairings count after their result is entered. Every player gets one opponent per round; with an odd roster, one player has a bye. The round-robin rotation breaks ties.
 - Add the reserved date, time, venue, and court to each generated match, then enter the set scores later.
 - Choose AP or UP, a court, and a match date/time in that week. The court list is a temporary 1–3 placeholder and should be replaced with the venue's actual courts. Time slots are currently entered directly; the requested preset schedule can be added once provided.
-- Add set game scores; match scores are shown on the ranking page.
+- Record best-of-three results with two regular sets and, when each player wins one set, a match tie-break to 10 points with a two-point margin. Match tie-break points do not count toward games in the standings.
 - Installable PWA shell with a service worker for static assets.
 
 ## Pages

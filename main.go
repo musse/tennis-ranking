@@ -50,8 +50,9 @@ type Match struct {
 	p2        int64
 }
 type Set struct {
-	A int `json:"a"`
-	B int `json:"b"`
+	A    int    `json:"a"`
+	B    int    `json:"b"`
+	Kind string `json:"kind,omitempty"`
 }
 
 func main() {
@@ -65,10 +66,13 @@ CREATE TABLE IF NOT EXISTS rankings(id INTEGER PRIMARY KEY, name TEXT NOT NULL, 
 CREATE TABLE IF NOT EXISTS players(id INTEGER PRIMARY KEY, ranking_id INTEGER NOT NULL REFERENCES rankings(id) ON DELETE CASCADE, name TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS matches(id INTEGER PRIMARY KEY, ranking_id INTEGER NOT NULL REFERENCES rankings(id) ON DELETE CASCADE, week_start TEXT NOT NULL, p1 INTEGER NOT NULL, p2 INTEGER NOT NULL, p3 INTEGER NOT NULL DEFAULT 0, p4 INTEGER NOT NULL DEFAULT 0, venue TEXT NOT NULL DEFAULT '', court TEXT NOT NULL DEFAULT '', played_at TEXT NOT NULL DEFAULT '', status TEXT NOT NULL DEFAULT 'scheduled');
 CREATE TABLE IF NOT EXISTS match_weeks(ranking_id INTEGER NOT NULL REFERENCES rankings(id) ON DELETE CASCADE, week_start TEXT NOT NULL, round_index INTEGER NOT NULL, PRIMARY KEY(ranking_id,week_start));
-CREATE TABLE IF NOT EXISTS sets(id INTEGER PRIMARY KEY, match_id INTEGER NOT NULL REFERENCES matches(id) ON DELETE CASCADE, set_no INTEGER NOT NULL, a INTEGER NOT NULL, b INTEGER NOT NULL);`); err != nil {
+CREATE TABLE IF NOT EXISTS sets(id INTEGER PRIMARY KEY, match_id INTEGER NOT NULL REFERENCES matches(id) ON DELETE CASCADE, set_no INTEGER NOT NULL, a INTEGER NOT NULL, b INTEGER NOT NULL, kind TEXT NOT NULL DEFAULT 'set');`); err != nil {
 		log.Fatal(err)
 	}
 	if err = migrateMatches(db); err != nil {
+		log.Fatal(err)
+	}
+	if err = ensureSetKind(db); err != nil {
 		log.Fatal(err)
 	}
 	app := &App{db: db, password: os.Getenv("APP_PASSWORD"), captchaSecret: os.Getenv("RECAPTCHA_SECRET_KEY"), captchaSite: os.Getenv("RECAPTCHA_SITE_KEY")}
@@ -142,9 +146,9 @@ func migrateMatches(db *sql.DB) error {
 		"ALTER TABLE sets RENAME TO sets_legacy",
 		"ALTER TABLE matches RENAME TO matches_legacy",
 		`CREATE TABLE matches(id INTEGER PRIMARY KEY, ranking_id INTEGER NOT NULL REFERENCES rankings(id) ON DELETE CASCADE, week_start TEXT NOT NULL, p1 INTEGER NOT NULL, p2 INTEGER NOT NULL, p3 INTEGER NOT NULL DEFAULT 0, p4 INTEGER NOT NULL DEFAULT 0, venue TEXT NOT NULL DEFAULT '', court TEXT NOT NULL DEFAULT '', played_at TEXT NOT NULL DEFAULT '', status TEXT NOT NULL DEFAULT 'scheduled')`,
-		"CREATE TABLE sets(id INTEGER PRIMARY KEY, match_id INTEGER NOT NULL REFERENCES matches(id) ON DELETE CASCADE, set_no INTEGER NOT NULL, a INTEGER NOT NULL, b INTEGER NOT NULL)",
+		"CREATE TABLE sets(id INTEGER PRIMARY KEY, match_id INTEGER NOT NULL REFERENCES matches(id) ON DELETE CASCADE, set_no INTEGER NOT NULL, a INTEGER NOT NULL, b INTEGER NOT NULL, kind TEXT NOT NULL DEFAULT 'set')",
 		"INSERT INTO matches SELECT * FROM matches_legacy",
-		"INSERT INTO sets SELECT * FROM sets_legacy",
+		"INSERT INTO sets(id,match_id,set_no,a,b,kind) SELECT id,match_id,set_no,a,b,CASE WHEN set_no=3 THEN 'legacy_set' ELSE 'set' END FROM sets_legacy",
 		"DROP TABLE sets_legacy",
 		"DROP TABLE matches_legacy",
 	}
@@ -162,6 +166,42 @@ func migrateMatches(db *sql.DB) error {
 	_, err = conn.ExecContext(context.Background(), "PRAGMA foreign_keys=ON")
 	return err
 }
+
+func ensureSetKind(db *sql.DB) error {
+	rows, err := db.Query("PRAGMA table_info(sets)")
+	if err != nil {
+		return err
+	}
+	hasKind := false
+	for rows.Next() {
+		var cid, notNull, primaryKey int
+		var name, columnType string
+		var defaultValue sql.NullString
+		if err := rows.Scan(&cid, &name, &columnType, &notNull, &defaultValue, &primaryKey); err != nil {
+			_ = rows.Close()
+			return err
+		}
+		if name == "kind" {
+			hasKind = true
+		}
+	}
+	if err := rows.Err(); err != nil {
+		_ = rows.Close()
+		return err
+	}
+	if err := rows.Close(); err != nil {
+		return err
+	}
+	if hasKind {
+		return nil
+	}
+	if _, err = db.Exec("ALTER TABLE sets ADD COLUMN kind TEXT NOT NULL DEFAULT 'set'"); err != nil {
+		return err
+	}
+	_, err = db.Exec("UPDATE sets SET kind='legacy_set' WHERE set_no=3")
+	return err
+}
+
 func write(w http.ResponseWriter, status int, v any) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
@@ -475,8 +515,8 @@ func (a *App) rankings(w http.ResponseWriter, r *http.Request, p []string) {
 				}
 			}
 			if in.Sets != nil {
-				if len(*in.Sets) == 0 {
-					write(w, 400, map[string]string{"error": "Informe o placar de pelo menos um set."})
+				if len(*in.Sets) < 2 || len(*in.Sets) > 3 {
+					write(w, 400, map[string]string{"error": "Informe os dois sets e, se necessário, o match tie-break."})
 					return
 				}
 				var playedAt string
@@ -484,15 +524,49 @@ func (a *App) rankings(w http.ResponseWriter, r *http.Request, p []string) {
 					write(w, 400, map[string]string{"error": "Adicione a reserva antes de lançar o resultado."})
 					return
 				}
-				for _, set := range *in.Sets {
+				setWins := [2]int{}
+				setKinds := make([]string, len(*in.Sets))
+				for i, set := range *in.Sets {
 					if set.A < 0 || set.B < 0 || set.A == set.B {
-						write(w, 400, map[string]string{"error": "Cada set precisa ter placar diferente e games não negativos."})
+						write(w, 400, map[string]string{"error": "Os placares devem ser diferentes e não negativos."})
 						return
 					}
+					winner := 0
+					if set.B > set.A {
+						winner = 1
+					}
+					if i < 2 {
+						if !validRegularSet(set.A, set.B) {
+							write(w, 400, map[string]string{"error": "Os dois primeiros sets devem terminar em 6 games, ou 7 games com tie-break."})
+							return
+						}
+						setWins[winner]++
+						setKinds[i] = "set"
+					} else if set.Kind == "legacy_set" {
+						if setWins != [2]int{1, 1} || !validRegularSet(set.A, set.B) {
+							write(w, 400, map[string]string{"error": "O placar do terceiro set antigo é inválido."})
+							return
+						}
+						setKinds[i] = "legacy_set"
+					} else {
+						if setWins != [2]int{1, 1} {
+							write(w, 400, map[string]string{"error": "O terceiro set só é disputado quando cada jogador vence um dos dois primeiros sets."})
+							return
+						}
+						if !validMatchTiebreak(set.A, set.B) {
+							write(w, 400, map[string]string{"error": "O match tie-break deve chegar a pelo menos 10 pontos, com diferença mínima de 2."})
+							return
+						}
+						setKinds[i] = "match_tiebreak"
+					}
+				}
+				if len(*in.Sets) == 2 && setWins[0] == setWins[1] {
+					write(w, 400, map[string]string{"error": "Como cada jogador venceu um set, informe o match tie-break do terceiro set."})
+					return
 				}
 				_, _ = a.db.Exec("DELETE FROM sets WHERE match_id=?", mid)
 				for i, s := range *in.Sets {
-					_, _ = a.db.Exec("INSERT INTO sets(match_id,set_no,a,b) VALUES(?,?,?,?)", mid, i+1, s.A, s.B)
+					_, _ = a.db.Exec("INSERT INTO sets(match_id,set_no,a,b,kind) VALUES(?,?,?,?,?)", mid, i+1, s.A, s.B, setKinds[i])
 				}
 				_, _ = a.db.Exec("UPDATE matches SET status='completed' WHERE id=?", mid)
 			}
@@ -545,17 +619,33 @@ func (a *App) rankingDetail(w http.ResponseWriter, id int64) {
 				matches[i].Players = append(matches[i].Players, pl)
 			}
 		}
-		setRows, e := a.db.Query("SELECT a,b FROM sets WHERE match_id=? ORDER BY set_no", matches[i].ID)
+		setRows, e := a.db.Query("SELECT a,b,kind FROM sets WHERE match_id=? ORDER BY set_no", matches[i].ID)
 		if e == nil {
 			for setRows.Next() {
 				var s Set
-				_ = setRows.Scan(&s.A, &s.B)
+				_ = setRows.Scan(&s.A, &s.B, &s.Kind)
 				matches[i].Sets = append(matches[i].Sets, s)
 			}
 			_ = setRows.Close()
 		}
 	}
 	write(w, 200, map[string]any{"ranking": ranking, "matches": matches})
+}
+
+func validRegularSet(a, b int) bool {
+	winner, loser := a, b
+	if b > a {
+		winner, loser = b, a
+	}
+	return (winner == 6 && loser <= 4) || (winner == 7 && (loser == 5 || loser == 6))
+}
+
+func validMatchTiebreak(a, b int) bool {
+	winner, loser := a, b
+	if b > a {
+		winner, loser = b, a
+	}
+	return winner >= 10 && winner-loser >= 2
 }
 
 // Match participants are attached while reading rows to avoid a query on an open SQLite cursor.
