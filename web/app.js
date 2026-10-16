@@ -1,5 +1,5 @@
 const $=s=>document.querySelector(s),api=async(path,opts={})=>{const r=await fetch('/api/'+path,{...opts,headers:{'Content-Type':'application/json',...(opts.headers||{})}});let j={};try{j=await r.json()}catch{}if(!r.ok)throw Error(j.error||'Ocorreu um erro');return j};let current=null,siteKey='',editingMatch=null,rankingPlayers=[];
-function esc(s){return String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]))}function dateBR(s){return s?new Date(s+'T12:00:00').toLocaleDateString('pt-BR',{day:'2-digit',month:'2-digit',year:'numeric'}):''}
+function esc(s){return String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]))}function dateBR(s){return s?new Date(s+'T12:00:00').toLocaleDateString('pt-BR',{day:'2-digit',month:'2-digit',year:'numeric'}):''}function weekRangeBR(start){const end=new Date(start+'T12:00:00');end.setDate(end.getDate()+6);return `${dateBR(start)} a ${dateBR(formatDate(end))} · sábado a sexta`}
 async function boot(){try{await api('rankings');$('#login').classList.add('hidden');$('#app').classList.remove('hidden');$('#logout').classList.remove('hidden');await loadRankings();await renderRoute()}catch{$('#login').classList.remove('hidden')}}
 async function loadRankings(){const rows=await api('rankings');$('#ranking-list').innerHTML=rows.length?rows.filter(x=>x.active).map(x=>`<article class="card ranking-card" data-id="${x.id}"><div><h3>${esc(x.name)}</h3><div class="sub">${x.players.length} jogadores · desde ${dateBR(x.createdAt.slice(0,10))}</div><span class="pill">ATIVO</span></div><button class="quiet end-ranking" data-id="${x.id}">Encerrar</button></article>`).join(''):'<div class="empty">Nenhum ranking por aqui ainda. Crie o primeiro!</div>';document.querySelectorAll('.ranking-card').forEach(x=>x.onclick=e=>{if(!e.target.closest('.end-ranking'))openRanking(+x.dataset.id)});document.querySelectorAll('.end-ranking').forEach(b=>b.onclick=async e=>{e.stopPropagation();if(confirm('Encerrar este ranking?')){await api(`rankings/${b.dataset.id}`,{method:'DELETE'});await loadRankings()}})}
 $('#login-form').onsubmit=async e=>{e.preventDefault();$('#login-error').textContent='';try{let token='';if(siteKey){if(!window.grecaptcha)throw Error('Captcha ainda está carregando. Tente novamente.');token=await grecaptcha.execute(siteKey,{action:'login'})}await api('login',{method:'POST',body:JSON.stringify({password:$('#password').value,token})});boot()}catch(e){$('#login-error').textContent=e.message}};
@@ -17,20 +17,30 @@ async function renderRanking(section='standings') {
   const d=await api(`rankings/${current}`),week=currentWeekString();
   rankingPlayers=d.ranking.players;
   const currentMatches=d.matches.filter(m=>m.weekStart===week);
+  const nextWeekDate=new Date(`${week}T12:00:00`);nextWeekDate.setDate(nextWeekDate.getDate()+7);
+  const nextWeek=formatDate(nextWeekDate),nextMatches=d.matches.filter(m=>m.weekStart===nextWeek);
   const nav=`<nav class="ranking-nav"><a data-route href="/rankings/${current}/week" class="${section==='week'?'active':''}">Semana atual</a><a data-route href="/rankings/${current}/standings" class="${section==='standings'?'active':''}">Classificação</a><a data-route href="/rankings/${current}/history" class="${section==='history'?'active':''}">Resultados anteriores</a></nav>`;
   let content='';
   if(section==='standings')content=standingsHtml(d.ranking.players,d.matches);
   if(section==='week'){
     const alreadyDrawn=currentMatches.length>0;
     const played=new Set(currentMatches.flatMap(m=>m.players.map(p=>p.id))),bye=d.ranking.players.find(p=>!played.has(p.id));
-    content=`<div class="section-title"><div><h2>Semana atual</h2><span class="sub">${dateBR(week)} · sábado a sexta</span></div><button class="primary" id="draw-matches" ${alreadyDrawn?'disabled title="Os adversários desta semana já foram sorteados"':''}>${alreadyDrawn?'Adversários sorteados':'Sortear adversários'}</button></div><p class="page-intro">Cada pessoa recebe um adversário nesta rodada. Com número ímpar de jogadores, uma pessoa descansa.</p>${alreadyDrawn?`${bye?`<div class="bye-note">${esc(bye.name)} descansa nesta semana.</div>`:''}${currentMatches.map(m=>renderMatch(m)).join('')}`:'<div class="empty">Os confrontos desta semana ainda não foram sorteados.</div>'}`;
+    content=`<div class="section-title"><div><h2>Semana atual</h2><span class="sub">${weekRangeBR(week)}</span></div><button class="primary" id="draw-matches" ${alreadyDrawn?'disabled title="Os adversários desta semana já foram sorteados"':''}>${alreadyDrawn?'Adversários sorteados':'Sortear adversários'}</button></div><p class="page-intro">Cada pessoa recebe um adversário nesta rodada. Com número ímpar de jogadores, uma pessoa descansa.</p>${alreadyDrawn?`${bye?`<div class="bye-note">${esc(bye.name)} descansa nesta semana.</div>`:''}${currentMatches.map(m=>renderMatch(m)).join('')}`:'<div class="empty">Os confrontos desta semana ainda não foram sorteados.</div>'}`;
+    if(new Date().getDay()===5){
+      const nextPlayed=new Set(nextMatches.flatMap(m=>m.players.map(p=>p.id))),nextBye=d.ranking.players.find(p=>!nextPlayed.has(p.id));
+      const nextDrawn=nextMatches.length>0;
+      content+=`<section class="upcoming-week"><div class="section-title"><div><h2>Próxima semana</h2><span class="sub">${weekRangeBR(nextWeek)}</span></div><button class="primary" id="draw-next-matches" ${!alreadyDrawn||nextDrawn?'disabled':''}>${nextDrawn?'Adversários sorteados':'Sortear próxima semana'}</button></div>${!alreadyDrawn?'<div class="empty">Sorteie primeiro os confrontos desta semana.</div>':nextDrawn?`${nextBye?`<div class="bye-note">${esc(nextBye.name)} descansa na próxima semana.</div>`:''}${nextMatches.map(m=>renderMatch(m)).join('')}`:'<div class="empty">Sorteie os adversários da próxima semana para marcar as partidas no sábado.</div>'}</section>`;
+    }
   }
   if(section==='history'){
     const previous=d.matches.filter(m=>m.weekStart<week&&m.status==='completed');
     content=previous.length?renderHistory(previous):'<div class="empty">Ainda não há resultados anteriores.</div>';
   }
   $('#detail').innerHTML=`<div class="detail-head"><h1>${esc(d.ranking.name)}</h1></div>${nav}<section class="page-content">${content}</section>`;
-  if(section==='week')$('#draw-matches').onclick=async()=>{try{await api(`rankings/${current}/matches`,{method:'POST',body:JSON.stringify({weekStart:week})});await renderRanking('week')}catch(e){alert(e.message)}};
+  if(section==='week'){
+    $('#draw-matches').onclick=async()=>{try{await api(`rankings/${current}/matches`,{method:'POST',body:JSON.stringify({weekStart:week})});await renderRanking('week')}catch(e){alert(e.message)}};
+    if($('#draw-next-matches'))$('#draw-next-matches').onclick=async()=>{try{await api(`rankings/${current}/matches`,{method:'POST',body:JSON.stringify({weekStart:nextWeek})});await renderRanking('week')}catch(e){alert(e.message)}};
+  }
 }
 function renderHistory(matches){const groups=new Map();for(const m of matches){if(!groups.has(m.weekStart))groups.set(m.weekStart,[]);groups.get(m.weekStart).push(m)}return [...groups].sort(([a],[b])=>b.localeCompare(a)).map(([week,games])=>`<section class="history-week"><h2>Semana de ${dateBR(week)}</h2>${games.map(m=>renderMatch(m,false)).join('')}</section>`).join('')}
 function standingsHtml(players,matches) {

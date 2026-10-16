@@ -12,3 +12,4 @@ main{min-height:calc(100vh - 76px)}
 .check-option{display:flex;align-items:center;gap:9px;cursor:pointer}.check-option input{width:18px;height:18px;margin:0;accent-color:var(--green)}
 .primary:disabled{opacity:.5;cursor:not-allowed;filter:saturate(.45)}
 .set-entry{margin:12px 0}.set-label{font-size:12px;font-weight:700;color:var(--green);margin:0 0 4px}.set-entry .set-row{margin:0}
+.upcoming-week{margin-top:34px;padding-top:8px;border-top:1px solid var(--line)}
