@@ -85,6 +85,12 @@ $('#result-form').onsubmit=async e=>{e.preventDefault();const sets=[...document.
 function currentWeekString(){return formatDate(saturday(new Date()))}
 function formatDate(d){return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`}
 function saturday(d){const x=new Date(d);x.setDate(x.getDate()-((x.getDay()+1)%7));return x}
+let deferredInstallPrompt=null;
+const installButton=$('#install-app'),isIOS=/iphone|ipad|ipod/i.test(navigator.userAgent)||(navigator.platform==='MacIntel'&&navigator.maxTouchPoints>1),isStandalone=matchMedia('(display-mode: standalone)').matches||navigator.standalone===true;
+if(isIOS&&!isStandalone)installButton.classList.remove('hidden');
+window.addEventListener('beforeinstallprompt',event=>{event.preventDefault();deferredInstallPrompt=event;installButton.classList.remove('hidden')});
+window.addEventListener('appinstalled',()=>{deferredInstallPrompt=null;installButton.classList.add('hidden')});
+installButton.onclick=async()=>{if(deferredInstallPrompt){await deferredInstallPrompt.prompt();const choice=await deferredInstallPrompt.userChoice;if(choice.outcome==='accepted')installButton.classList.add('hidden');deferredInstallPrompt=null}else if(isIOS)$('#install-help').showModal()};
 window.addEventListener('popstate',()=>{if(!$('#app').classList.contains('hidden'))renderRoute()});
 if('serviceWorker'in navigator)navigator.serviceWorker.register('/sw.js');
 api('config').then(c=>{siteKey=c.captchaSiteKey;if(siteKey){$('#captcha-terms').classList.remove('hidden');const s=document.createElement('script');s.src='https://www.google.com/recaptcha/api.js?render='+encodeURIComponent(siteKey);document.head.append(s)}});
