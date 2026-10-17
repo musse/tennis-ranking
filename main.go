@@ -433,6 +433,15 @@ func (a *App) rankings(w http.ResponseWriter, r *http.Request, p []string) {
 			return
 		}
 		if r.Method == "PATCH" {
+			var active int
+			if a.db.QueryRow("SELECT active FROM rankings WHERE id=?", id).Scan(&active) != nil {
+				write(w, 404, nil)
+				return
+			}
+			if active == 0 {
+				write(w, 409, map[string]string{"error": "Este ranking foi encerrado e não pode mais ser editado."})
+				return
+			}
 			var in struct {
 				Venue    string   `json:"venue"`
 				Court    string   `json:"court"`
@@ -479,6 +488,16 @@ func (a *App) rankings(w http.ResponseWriter, r *http.Request, p []string) {
 				if (in.Venue != "AP" && in.Venue != "UP") || in.PlayedAt == "" {
 					write(w, 400, map[string]string{"error": "Escolha o dia e a sede."})
 					return
+				}
+				if in.Court != "" {
+					allowedCourts := map[string]map[string]bool{
+						"AP": {"1": true, "2": true, "8": true, "9": true, "10": true},
+						"UP": {"2": true, "3": true, "6": true, "7": true},
+					}
+					if !allowedCourts[in.Venue][in.Court] {
+						write(w, 400, map[string]string{"error": "Escolha uma quadra válida para a sede selecionada."})
+						return
+					}
 				}
 				dayText := in.PlayedAt
 				var when time.Time
@@ -574,6 +593,15 @@ func (a *App) rankings(w http.ResponseWriter, r *http.Request, p []string) {
 			return
 		}
 		if r.Method == "DELETE" {
+			var active int
+			if a.db.QueryRow("SELECT active FROM rankings WHERE id=?", id).Scan(&active) != nil {
+				write(w, 404, nil)
+				return
+			}
+			if active == 0 {
+				write(w, 409, map[string]string{"error": "Este ranking foi encerrado e não pode mais ser editado."})
+				return
+			}
 			_, err = a.db.Exec("DELETE FROM matches WHERE id=? AND ranking_id=?", mid, id)
 			if err != nil {
 				write(w, 500, nil)
