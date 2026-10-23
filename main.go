@@ -448,6 +448,8 @@ func (a *App) rankings(w http.ResponseWriter, r *http.Request, p []string) {
 				PlayedAt string   `json:"playedAt"`
 				Sets     *[]Set   `json:"sets"`
 				Players  *[]int64 `json:"players"`
+				Outcome  string   `json:"outcome"`
+				Draw     bool     `json:"draw"`
 			}
 			if json.NewDecoder(r.Body).Decode(&in) != nil {
 				write(w, 400, nil)
@@ -456,6 +458,22 @@ func (a *App) rankings(w http.ResponseWriter, r *http.Request, p []string) {
 			var week string
 			if a.db.QueryRow("SELECT week_start FROM matches WHERE id=? AND ranking_id=?", mid, id).Scan(&week) != nil {
 				write(w, 404, nil)
+				return
+			}
+			if in.Outcome != "" {
+				if in.Outcome != "not_played" && in.Outcome != "scheduled" {
+					write(w, 400, map[string]string{"error": "Estado de partida inválido."})
+					return
+				}
+				if _, err := a.db.Exec("UPDATE matches SET status=? WHERE id=? AND ranking_id=?", in.Outcome, mid, id); err != nil {
+					write(w, 500, nil)
+					return
+				}
+				if _, err := a.db.Exec("DELETE FROM sets WHERE match_id=?", mid); err != nil {
+					write(w, 500, nil)
+					return
+				}
+				write(w, 200, map[string]bool{"ok": true})
 				return
 			}
 			if in.Players != nil {
@@ -468,7 +486,7 @@ func (a *App) rankings(w http.ResponseWriter, r *http.Request, p []string) {
 					write(w, 404, nil)
 					return
 				}
-				if status == "completed" {
+				if status == "completed" || status == "drawn" {
 					write(w, 400, map[string]string{"error": "Não é possível alterar os jogadores de uma partida com resultado lançado."})
 					return
 				}
@@ -533,6 +551,10 @@ func (a *App) rankings(w http.ResponseWriter, r *http.Request, p []string) {
 					return
 				}
 			}
+			if in.Draw && in.Sets == nil {
+				write(w, 400, map[string]string{"error": "Informe os dois sets para registrar empate."})
+				return
+			}
 			if in.Sets != nil {
 				if len(*in.Sets) < 2 || len(*in.Sets) > 3 {
 					write(w, 400, map[string]string{"error": "Informe os dois sets e, se necessário, o match tie-break."})
@@ -579,7 +601,11 @@ func (a *App) rankings(w http.ResponseWriter, r *http.Request, p []string) {
 						setKinds[i] = "match_tiebreak"
 					}
 				}
-				if len(*in.Sets) == 2 && setWins[0] == setWins[1] {
+				if in.Draw && (len(*in.Sets) != 2 || setWins != [2]int{1, 1}) {
+					write(w, 400, map[string]string{"error": "Para registrar empate, informe dois sets válidos, vencidos um por cada jogador."})
+					return
+				}
+				if !in.Draw && len(*in.Sets) == 2 && setWins[0] == setWins[1] {
 					write(w, 400, map[string]string{"error": "Como cada jogador venceu um set, informe o match tie-break do terceiro set."})
 					return
 				}
@@ -587,7 +613,11 @@ func (a *App) rankings(w http.ResponseWriter, r *http.Request, p []string) {
 				for i, s := range *in.Sets {
 					_, _ = a.db.Exec("INSERT INTO sets(match_id,set_no,a,b,kind) VALUES(?,?,?,?,?)", mid, i+1, s.A, s.B, setKinds[i])
 				}
-				_, _ = a.db.Exec("UPDATE matches SET status='completed' WHERE id=?", mid)
+				status := "completed"
+				if in.Draw {
+					status = "drawn"
+				}
+				_, _ = a.db.Exec("UPDATE matches SET status=? WHERE id=?", status, mid)
 			}
 			write(w, 200, map[string]bool{"ok": true})
 			return
@@ -702,7 +732,7 @@ func saturday(t time.Time) time.Time {
 func (a *App) matchupCounts(rankingID int64) (map[[2]int64]int, error) {
 	rows, err := a.db.Query(`SELECT CASE WHEN p1<p2 THEN p1 ELSE p2 END,
 CASE WHEN p1<p2 THEN p2 ELSE p1 END, COUNT(*)
-FROM matches WHERE ranking_id=? AND status='completed' GROUP BY 1,2`, rankingID)
+FROM matches WHERE ranking_id=? AND status IN ('completed','drawn') GROUP BY 1,2`, rankingID)
 	if err != nil {
 		return nil, err
 	}
@@ -750,7 +780,7 @@ func roundRobin(ps []Player, round int, matchupCounts map[[2]int64]int) ([][2]in
 		}
 	}
 
-	// Minimize the total number of completed head-to-head matches in this slate.
+	// Minimize the total number of played head-to-head matches in this slate.
 	// The canonical round-robin rotation breaks ties to preserve the old sequence.
 	n := len(ring)
 	if n > 20 {
