@@ -29,7 +29,7 @@ async function renderRanking(section='standings') {
     const drawButton=rankingActive?`<button class="primary" id="draw-matches" ${alreadyDrawn?'disabled title="Os adversários desta semana já foram sorteados"':''}>${alreadyDrawn?'Adversários sorteados':'Sortear adversários'}</button>`:'';
     const emptyWeek=rankingActive?'Os confrontos desta semana ainda não foram sorteados.':'Nenhum confronto foi sorteado nesta semana.';
     content=`<div class="section-title week-title"><div><h2>Semana atual</h2><span class="sub">${weekRangeBR(week)}</span></div>${drawButton}</div>${alreadyDrawn?`${bye?`<div class="bye-note">${esc(bye.name)} descansa nesta semana.</div>`:''}${currentMatches.map(m=>renderMatch(m,rankingActive)).join('')}`:`<div class="empty">${emptyWeek}</div>`}`;
-    if(rankingActive&&new Date().getDay()===5){
+    if(rankingActive){
       const nextPlayed=new Set(nextMatches.flatMap(m=>m.players.map(p=>p.id))),nextBye=d.ranking.players.find(p=>!nextPlayed.has(p.id));
       const nextDrawn=nextMatches.length>0;
       content+=`<section class="upcoming-week"><div class="section-title week-title"><div><h2>Próxima semana</h2><span class="sub">${weekRangeBR(nextWeek)}</span></div><button class="primary" id="draw-next-matches" ${!alreadyDrawn||nextDrawn?'disabled':''}>${nextDrawn?'Adversários sorteados':'Sortear próxima semana'}</button></div>${!alreadyDrawn?'<div class="empty">Sorteie primeiro os confrontos desta semana.</div>':nextDrawn?`${nextBye?`<div class="bye-note">${esc(nextBye.name)} descansa na próxima semana.</div>`:''}${nextMatches.map(m=>renderMatch(m,rankingActive)).join('')}`:'<div class="empty">Sorteie os adversários da próxima semana para marcar as partidas no sábado.</div>'}</section>`;

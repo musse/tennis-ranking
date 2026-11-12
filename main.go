@@ -386,6 +386,16 @@ func (a *App) rankings(w http.ResponseWriter, r *http.Request, p []string) {
 			write(w, 409, map[string]string{"error": "Confrontos desta semana já foram gerados"})
 			return
 		}
+		currentWeek := saturday(time.Now())
+		nextWeek := currentWeek.AddDate(0, 0, 7).Format("2006-01-02")
+		if in.WeekStart == nextWeek {
+			var currentMatches int
+			_ = a.db.QueryRow("SELECT COUNT(*) FROM matches WHERE ranking_id=? AND week_start=?", id, currentWeek.Format("2006-01-02")).Scan(&currentMatches)
+			if currentMatches == 0 {
+				write(w, 409, map[string]string{"error": "Sorteie primeiro os confrontos desta semana."})
+				return
+			}
+		}
 		players, _ := a.players(id)
 		if len(players) < 2 {
 			write(w, 400, map[string]string{"error": "O ranking precisa de pelo menos dois jogadores."})
